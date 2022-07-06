@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"stock/services"
 	"strings"
 
 	"golang.org/x/text/language"
@@ -126,7 +127,8 @@ func (sm *StateMachine) Do(tx *gorm.DB, trigger string, userInfoId uint, args ..
 	}
 
 	if !canDo {
-		return errors.New(fmt.Sprintf("can not do trigger: %s, current state: %s", trigger, currentState))
+		return nil
+		//return errors.New(fmt.Sprintf("can not do trigger: %s, current state: %s", trigger, currentState))
 	}
 
 	if conditionFunc != nil {
@@ -143,6 +145,14 @@ func (sm *StateMachine) Do(tx *gorm.DB, trigger string, userInfoId uint, args ..
 
 	sm.stater.SetState(dest)
 
+	if afterFunc != nil {
+		if err := afterFunc.(func(*gorm.DB, ...interface{}) error)(tx, args...); err != nil {
+			services.Log.Sugar.Error(err)
+			fmt.Println(err)
+			return err
+		}
+	}
+
 	if err := tx.Debug().Model(
 		sm.stater,
 	).Omit(clause.Associations).Update(
@@ -150,13 +160,6 @@ func (sm *StateMachine) Do(tx *gorm.DB, trigger string, userInfoId uint, args ..
 	).Error; err != nil {
 		return err
 	}
-
-	if afterFunc != nil {
-		if err := afterFunc.(func(*gorm.DB, ...interface{}) error)(tx, args...); err != nil {
-			return err
-		}
-	}
-	fmt.Println(tx, src, dest)
 
 	return sm.log(tx, trigger, src, dest, userInfoId)
 }
@@ -175,8 +178,8 @@ func (sm *StateMachine) log(tx *gorm.DB, trigger, source, dest string, userInfoI
 	return nil
 }
 
-func AutoMigrateStateStateMachineLog(tx *gorm.DB) {
-	if err := tx.AutoMigrate(&StateMachineLog{}); err != nil {
-		panic(err)
+func init() {
+	if err := services.DB.AutoMigrate(&StateMachineLog{}); err != nil {
+		services.Log.Sugar.Error(err)
 	}
 }
